@@ -4,7 +4,7 @@ name: CI
 
 on:
   push:
-    branches: [wip/m3-preview2, "claude/**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
