@@ -1,0 +1,54 @@
+# Build and pure-logic tests only. CI never runs a product exe, installs a service,
+# touches WFP or changes any network setting; Windows runtime acceptance stays manual (VM).
+name: CI
+
+on:
+  push:
+    branches: [wip/m3-preview2, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux build, core tests, Windows GNU cross build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (pinned by rust-toolchain.toml)
+        run: |
+          rustup show active-toolchain
+          rustup component add rustfmt
+      - name: MinGW-w64 linker
+        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Linux workspace build
+        run: cargo build --locked --workspace
+      - name: Core tests (executed)
+        run: cargo test --locked -p lineguard-core
+      - name: Windows GNU release build
+        run: cargo build --locked --workspace --release --target x86_64-pc-windows-gnu
+      - name: Core tests compile for Windows GNU
+        run: cargo build --locked -p lineguard-core --tests --target x86_64-pc-windows-gnu
+      - name: Inspect PE artifacts
+        run: python3 scripts/inspect-artifacts.py
+
+  windows:
+    name: Windows core tests (native)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Core tests (executed; pure logic, no system changes)
+        run: cargo test --locked -p lineguard-core

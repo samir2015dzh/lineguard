@@ -13,11 +13,13 @@
   - `revoke_all`：单事务删除全部自有v3键（包层在前），不碰M2；外来占键/未知对象拒绝扩大删除。
   - 写前journal→变更→事务内回读→提交→新会话回读；失败按Aborted/Uncertain如实记录。
 - 联动：M2 inspect把v3键排除在“多余规则”之外；有v3对象时M2安装/移除拒绝；`wfp::inspect`合成状态：Open+M2完整=新`Narrowed`（UI显示“实验窄许可存在·不是全阻断”，Phase=Degraded），Drift即Drift。rescue `recover/remove`在独立应急阻断确认后、停核心前先`revoke_all`；服务`close_active`同序。RESCUE_MARKER升级为`…PermitRevoke.v3`，旧rescue不再满足前置检查。
-- `lineguardctl guard permit inspect`：只读v3回读。**没有任何CLI/IPC能安装门或放行**，`install_gate/open`目前无调用方。
+- `lineguardctl guard permit inspect`：只读v3回读。
+- **生命周期接入（本轮后续提交）**：新IPC命令`OpenNarrowPath`/`lineguardctl tun open --confirm OPEN-NARROW-DATA-PATH`，仅同会话经令牌核验的管理员、仅在`Quarantined`独占TUN上、配置代次一致时可用。服务先做全量健康回读，再派生参数→门事务→重新回读TUN→包层事务；成功进入新阶段`NarrowOpen`，任一失败走`close_active`（独立应急阻断→撤许可→停核心→恢复），不重试。`tick`同时要求v3回读：Quarantined须无v3对象，NarrowOpen须14条精确，否则同样关闭。Connect仍Unsupported，普通UI无放行入口。
+- CI：`.github/workflows/ci.yml`——Linux格式检查/构建/core测试执行/Windows GNU交叉release构建/PE检查，及Windows原生core测试执行。CI从不运行产品exe或改系统网络。
 - IPC升为5（guard::State新增Narrowed）。
 
 ## 尚未闭合，不能称M3真实联网已形成
-1. **生命周期尚未调用install_gate/open**：下一单元是在`engine::Lifecycle::start`于TUN回读确认后依次调用（门→包层），`tick`在任一证据失效时走`close_active`（应急阻断→撤许可→停核心→恢复）。连同ALE re-authorization对已有流的影响需VM实证。
+1. 生命周期已能显式放行，但**数据通路是否真的可用完全未验证**：需隔离VM实证门/包层许可对sing-tun真实收发、ALE re-authorization对已有流、关闭后应急阻断须管理员解除才能再次放行等行为。
 2. 包层许可与sing-tun实际收发路径（回注、loopback、TUN上DNS/fakeIP）是否恰好被这4条覆盖，完全未验证；ALE recv-accept对UDP回包的作用亦未验证。
 3. 事件通知/拓扑代次、有限重连、DNS/fakeIP/真实TUN数据通路健康证据仍需补齐。
 4. 仅独占Wintun实验环境；不与其他VPN并行（见前版说明，未变）。

@@ -252,11 +252,15 @@ fn expected() -> Option<Params> {
 
 /// Live readback; journal parameters are only the comparison target.
 pub fn inspect() -> io::Result<model::Evidence> {
+    inspect_against(expected().as_ref())
+}
+/// Live readback compared with parameters the caller holds in memory (the active lifecycle).
+pub fn inspect_against(params: Option<&Params>) -> io::Result<model::Evidence> {
     let engine = Engine::open()?;
     let mut tx = engine.transaction(true)?;
     let (seen, extra) = observe(&engine)?;
     tx.commit()?;
-    Ok(model::assess(expected().as_ref(), &seen, extra))
+    Ok(model::assess(params, &seen, extra))
 }
 /// Fold v3 evidence into the M2 view without ever upgrading it to protection.
 pub(super) fn compose(base: guard::Evidence, permit: &model::Evidence) -> guard::Evidence {

@@ -194,6 +194,12 @@ pub enum Command {
         index: usize,
         confirmation: String,
     },
+    /// Admin-only: on an already quarantined exclusive TUN, install the v3 gate then the packet
+    /// permits as the final step. Not Connect; never reachable from the ordinary UI.
+    OpenNarrowPath {
+        expected_generation: u64,
+        confirmation: String,
+    },
     Diagnostics,
 }
 
@@ -346,7 +352,9 @@ impl Controller {
                 Command::CoreInfo => Reply::CoreInfo {
                     info: self.core.clone(),
                 },
-                Command::StartExclusiveTun { .. } | Command::CoreCheck { .. } => failure(
+                Command::StartExclusiveTun { .. }
+                | Command::CoreCheck { .. }
+                | Command::OpenNarrowPath { .. } => failure(
                     FaultCode::Unsupported,
                     "只有Windows SYSTEM服务可执行管理员明确请求的核心隔离检查",
                 ),

@@ -74,6 +74,45 @@ pub fn serve(endpoint: Endpoint, stop: Arc<AtomicBool>, ready: impl FnOnce()) ->
                         result,
                     });
                 }
+                lineguard_core::Command::OpenNarrowPath {
+                    expected_generation,
+                    confirmation,
+                } => {
+                    let result = if endpoint.console || !authority.elevated_admin {
+                        lineguard_core::Reply::Failure {
+                            code: lineguard_core::FaultCode::PermissionDenied,
+                            message:
+                                "窄数据通路仅接受经令牌核验的同会话管理员请求；普通UI无放行权限"
+                                    .into(),
+                        }
+                    } else if *expected_generation != controller.generation() {
+                        lineguard_core::Reply::Failure {
+                            code: lineguard_core::FaultCode::Conflict,
+                            message: "配置代次已变化；拒绝放行".into(),
+                        }
+                    } else {
+                        let result = lifecycle.open_narrow(*expected_generation, confirmation);
+                        controller.observe_network(lifecycle.status());
+                        controller.observe_guard(
+                            wfp::inspect()
+                                .unwrap_or_else(|_| lineguard_core::guard::Evidence::unknown()),
+                        );
+                        match result {
+                            Ok(()) => lineguard_core::Reply::Status {
+                                snapshot: controller.snapshot(),
+                            },
+                            Err(e) => lineguard_core::Reply::Failure {
+                                code: lineguard_core::FaultCode::Engine,
+                                message: e.to_string(),
+                            },
+                        }
+                    };
+                    return Some(lineguard_core::Response {
+                        version: lineguard_core::VERSION,
+                        id: request.id,
+                        result,
+                    });
+                }
                 lineguard_core::Command::CoreInfo => controller.observe_core(engine::info()),
                 lineguard_core::Command::CoreCheck {
                     expected_generation,
