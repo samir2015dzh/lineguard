@@ -418,7 +418,7 @@ impl App {
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.label(
-                        RichText::new("v0.3 · 未验证开发预览")
+                        RichText::new(concat!("v", env!("CARGO_PKG_VERSION"), " · 未验证开发预览"))
                             .size(12.0)
                             .color(MUTED),
                     );
