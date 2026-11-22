@@ -12,9 +12,18 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
+/// Tag a startup failure with its stage, keeping kind and OS code; never paths or identities.
+fn stage<T>(name: &str, result: io::Result<T>) -> io::Result<T> {
+    result.map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("stage={name} kind={:?} os={:?}", e.kind(), e.raw_os_error()),
+        )
+    })
+}
 pub fn serve(endpoint: Endpoint, stop: Arc<AtomicBool>, ready: impl FnOnce()) -> io::Result<()> {
-    let identity = security::Identity::for_endpoint(endpoint)?;
-    let store = storage::Store::open(endpoint, &identity)?;
+    let identity = stage("identity", security::Identity::for_endpoint(endpoint))?;
+    let store = stage("store", storage::Store::open(endpoint, &identity))?;
     let loaded = store.load();
     let (config, generation, saved, error) = match loaded {
         Ok(Some((config, generation))) => (config, generation, true, false),
@@ -29,7 +38,7 @@ pub fn serve(endpoint: Endpoint, stop: Arc<AtomicBool>, ready: impl FnOnce()) ->
     let mut controller = Controller::new(config, generation, saved, error, mode);
     let mut lifecycle = engine::Lifecycle::new();
     controller.observe_network(lifecycle.status());
-    ipc::serve(endpoint, identity, stop, ready, |event| {
+    let result = ipc::serve(endpoint, identity, stop, ready, |event| {
         if lifecycle.tick(controller.generation()) {
             controller.observe_network(lifecycle.status());
         }
@@ -160,7 +169,8 @@ pub fn serve(endpoint: Endpoint, stop: Arc<AtomicBool>, ready: impl FnOnce()) ->
         Some(controller.handle(request, |config, generation| {
             store.save(config, generation).map_err(|_| ())
         }))
-    })
+    });
+    stage("pipe", result)
 }
 pub fn inspect(endpoint: Endpoint) -> io::Result<String> {
     let config_report = (|| {

@@ -13,7 +13,9 @@ function Run([string[]]$argv) {
   return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
 }
 function Expect($c, $m) { if ($c) { Say "PASS: $m" } else { Say "FAIL: $m" } }
-& whoami.exe /groups /fo csv | Select-String 'S-1-5-5-' | ForEach-Object { Say "logon SID present: $($_ -ne $null)" }
+Say ("logon SID groups: " + ((& whoami.exe /groups /fo csv | Select-String 'S-1-5-5-' | Measure-Object).Count))
+Say ("LOCALAPPDATA exists: " + (Test-Path $env:LOCALAPPDATA))
+try { $t = Join-Path $env:LOCALAPPDATA 'lg-write-test'; Set-Content $t 'x'; Remove-Item $t; Say 'LOCALAPPDATA writable: True' } catch { Say "LOCALAPPDATA writable: False ($($_.Exception.Message))" }
 $p = Start-Process -FilePath $svc -ArgumentList '--console' -PassThru -NoNewWindow `
   -RedirectStandardError (Join-Path $Dir 'service-stderr.txt')
 Start-Sleep -Seconds 3

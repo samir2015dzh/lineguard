@@ -7,11 +7,7 @@ fn main() {
         );
         if let Err(e) = serve(Endpoint { console: true }, Arc::new(AtomicBool::new(false))) {
             // Kind and OS code only: no paths, identities or configuration are printed.
-            eprintln!(
-                "启动失败：权限、管道或存储不可用（kind={:?}, os={:?}；不输出敏感路径）",
-                e.kind(),
-                e.raw_os_error()
-            );
+            eprintln!("启动失败：权限、管道或存储不可用（{e}；不输出敏感路径）");
             std::process::exit(1);
         }
     } else {
