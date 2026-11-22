@@ -40,7 +40,7 @@ $r = Run $rescue @('inspect'); Expect ($r.Code -eq 0) 'rescue inspect (read-only
 
 Step 'console IPC in a real logon session of a throwaway user'
 # The runner token has no logon-session SID, which console mode requires by design, so start a
-# genuine logon session (CreateProcessWithLogonW) for a temporary local user instead.
+# genuine logon session for a temporary local user instead.
 $work = 'C:\lgsmoke'
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 Copy-Item (Join-Path $Bin '*.exe') $work
@@ -51,12 +51,24 @@ $pw = 'L!' + [guid]::NewGuid().ToString('N').Substring(0, 10) + 'a'
 & net.exe user lgsmoke $pw /add | Out-Host
 Expect ($LASTEXITCODE -eq 0) 'temporary console-test user created'
 & icacls.exe $work /grant 'lgsmoke:(OI)(CI)M' | Out-Null
-$cred = [pscredential]::new('lgsmoke', (ConvertTo-SecureString $pw -AsPlainText -Force))
+# Start-Process -Credential did not load the profile (no LocalAppData). A scheduled task does a
+# full batch logon with profile; Administrators membership grants the batch-logon right, and
+# RunLevel Limited keeps the console process unelevated.
+& net.exe localgroup Administrators lgsmoke /add | Out-Null
 $pwsh = (Get-Command pwsh).Source
-try {
-  Start-Process -FilePath $pwsh -Credential $cred -LoadUserProfile -Wait -WorkingDirectory $work `
-    -ArgumentList @('-NoProfile', '-NonInteractive', '-File', "$work\ci-windows-console.ps1", '-Dir', $work)
-} catch { Write-Host "logon-session launch failed: $_" }
+$action = New-ScheduledTaskAction -Execute $pwsh -WorkingDirectory $work `
+  -Argument "-NoProfile -NonInteractive -File `"$work\ci-windows-console.ps1`" -Dir `"$work`""
+Register-ScheduledTask -TaskName 'LineGuardConsoleSmoke' -Action $action -User 'lgsmoke' -Password $pw `
+  -RunLevel Limited -Force | Out-Null
+Start-ScheduledTask -TaskName 'LineGuardConsoleSmoke'
+$deadline = (Get-Date).AddSeconds(120)
+while ((Get-Date) -lt $deadline) {
+  $f = Join-Path $work 'console-result.txt'
+  if ((Test-Path $f) -and ((Get-Content $f -Raw -Encoding utf8) -match 'DONE')) { break }
+  Start-Sleep -Seconds 2
+}
+Get-ScheduledTaskInfo -TaskName 'LineGuardConsoleSmoke' | Format-List LastRunTime, LastTaskResult | Out-Host
+Unregister-ScheduledTask -TaskName 'LineGuardConsoleSmoke' -Confirm:$false
 $result = Join-Path $work 'console-result.txt'
 if (Test-Path $result) {
   $text = Get-Content $result -Raw -Encoding utf8
