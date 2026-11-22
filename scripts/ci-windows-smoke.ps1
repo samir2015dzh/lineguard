@@ -46,8 +46,10 @@ New-Item -ItemType Directory -Force -Path $work | Out-Null
 Copy-Item (Join-Path $Bin '*.exe') $work
 Copy-Item 'examples/offline.example.json' $work
 Copy-Item 'scripts/ci-windows-console.ps1' $work
-$pw = 'Lg!' + [guid]::NewGuid().ToString('N') + 'a1'
-& net.exe user lgsmoke $pw /add | Out-Null
+# net user prompts (and fails non-interactively) for passwords longer than 14 characters.
+$pw = 'L!' + [guid]::NewGuid().ToString('N').Substring(0, 10) + 'a'
+& net.exe user lgsmoke $pw /add | Out-Host
+Expect ($LASTEXITCODE -eq 0) 'temporary console-test user created'
 & icacls.exe $work /grant 'lgsmoke:(OI)(CI)M' | Out-Null
 $cred = [pscredential]::new('lgsmoke', (ConvertTo-SecureString $pw -AsPlainText -Force))
 $pwsh = (Get-Command pwsh).Source
