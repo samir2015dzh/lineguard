@@ -5,8 +5,13 @@ fn main() {
         eprintln!(
             "LineGuard M2 console：只观察已有WFP，不自动安装或撤销；关闭终端不会解除持久实验阻断。"
         );
-        if serve(Endpoint { console: true }, Arc::new(AtomicBool::new(false))).is_err() {
-            eprintln!("启动失败：权限、管道或存储不可用（不输出敏感路径）");
+        if let Err(e) = serve(Endpoint { console: true }, Arc::new(AtomicBool::new(false))) {
+            // Kind and OS code only: no paths, identities or configuration are printed.
+            eprintln!(
+                "启动失败：权限、管道或存储不可用（kind={:?}, os={:?}；不输出敏感路径）",
+                e.kind(),
+                e.raw_os_error()
+            );
             std::process::exit(1);
         }
     } else {

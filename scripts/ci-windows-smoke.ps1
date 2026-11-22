@@ -39,6 +39,9 @@ $r = Run $rescue @('--version'); Expect ($r.Code -eq 0 -and $r.Out -match 'Permi
 $r = Run $rescue @('inspect'); Expect ($r.Code -eq 0) 'rescue inspect (read-only) succeeds'
 
 Step 'console IPC: service --console + ctl'
+# Console mode requires a non-SYSTEM user whose token carries a logon-session SID.
+& whoami.exe /user | Out-Host
+& whoami.exe /groups /fo csv | Select-String -Pattern 'Logon|LogonSession|S-1-5-5-' | Out-Host
 $p = Start-Process -FilePath $svc -ArgumentList '--console' -PassThru -NoNewWindow
 Start-Sleep -Seconds 2
 try {
