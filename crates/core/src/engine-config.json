@@ -1,0 +1,85 @@
+{
+  "port": 0,
+  "socks-port": 0,
+  "redir-port": 0,
+  "tproxy-port": 0,
+  "mixed-port": 0,
+  "allow-lan": false,
+  "bind-address": "127.0.0.1",
+  "mode": "rule",
+  "log-level": "silent",
+  "ipv6": false,
+  "external-controller": "",
+  "external-controller-tls": "",
+  "external-controller-unix": "",
+  "external-controller-pipe": "",
+  "external-ui": "",
+  "external-ui-url": "",
+  "secret": "",
+  "listeners": [],
+  "proxy-providers": {},
+  "rule-providers": {},
+  "proxy-groups": [],
+  "rules": [
+    "MATCH,LG-ONLY"
+  ],
+  "geo-auto-update": false,
+  "unified-delay": false,
+  "find-process-mode": "off",
+  "profile": {
+    "store-selected": false,
+    "store-fake-ip": false
+  },
+  "ntp": {
+    "enable": false,
+    "write-to-system": false
+  },
+  "sniffer": {
+    "enable": false
+  },
+  "tun": {
+    "enable": false,
+    "device": "LineGuard-M3",
+    "stack": "mips",
+    "dns-mode": "disabled",
+    "auto-route": false,
+    "auto-redirect": false,
+    "strict-route": false,
+    "auto-detect-interface": false,
+    "dns-hijack": [
+      "any:53"
+    ],
+    "mtu": 1500,
+    "disable-icmp-forwarding": true
+  },
+  "dns": {
+    "enable": true,
+    "listen": "",
+    "ipv6": false,
+    "prefer-h3": false,
+    "use-hosts": false,
+    "use-system-hosts": false,
+    "respect-rules": false,
+    "enhanced-mode": "fake-ip",
+    "fake-ip-range": "198.18.0.1/16",
+    "fake-ip-filter": [],
+    "cache-algorithm": "lru",
+    "cache-max-size": 256,
+    "nameserver": [
+      "https://1.1.1.1/dns-query#LG-ONLY"
+    ],
+    "default-nameserver": [
+      "https://1.1.1.1/dns-query#LG-ONLY"
+    ],
+    "proxy-server-nameserver": [
+      "https://1.1.1.1/dns-query#LG-ONLY"
+    ],
+    "direct-nameserver": [],
+    "fallback": [],
+    "fallback-filter": {
+      "geoip": false,
+      "geosite": [],
+      "ipcidr": []
+    }
+  }
+}

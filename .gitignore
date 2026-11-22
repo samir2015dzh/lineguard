@@ -1,0 +1,13 @@
+/target/
+/.tools/
+/dist/
+*.log
+.env
+.env.*
+*.pem
+*.pfx
+*.p12
+*.key
+/REQUIREMENTS-SOURCE.md
+/docs/history/
+/docs/ARTIFACTS*.json

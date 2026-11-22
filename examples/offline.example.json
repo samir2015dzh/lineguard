@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "profiles": [
+    {
+      "name": "格式示例（不可连接）",
+      "server": "198.51.100.10",
+      "port": 8443,
+      "method": "aes-256-gcm",
+      "password": "example-not-a-real-credential"
+    }
+  ]
+}

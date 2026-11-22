@@ -1,0 +1,18 @@
+[package]
+name = "lineguard-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "lineguard"
+path = "src/main.rs"
+
+[target.'cfg(windows)'.dependencies]
+lineguard-core = { path = "../core" }
+lineguard-agent = { path = "../agent" }
+serde_json.workspace = true
+
+eframe = { version = "=0.37.0", default-features = false, features = ["default_fonts", "glow"] }
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Controls_Dialogs"] }

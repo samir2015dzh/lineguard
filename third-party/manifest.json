@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "core": {
+    "version": "1.19.34",
+    "platform": "windows-amd64-v1",
+    "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-windows-amd64-v1-v1.19.34.zip",
+    "archive_size": 22417367,
+    "archive_sha256": "703e325bfeee582f874b06d054eaae55ab7c194645d1835411685aafa85da5ea",
+    "executable_name": "mihomo.exe",
+    "executable_size": 61192704,
+    "executable_sha256": "513ec525d782e29e00dd92b25f25623b3811a9b2fc5c51d95e1190bcc7fa0d3c",
+    "source_url": "https://github.com/MetaCubeX/mihomo/tree/v1.19.34",
+    "source_archive_url": "https://codeload.github.com/MetaCubeX/mihomo/tar.gz/refs/tags/v1.19.34",
+    "source_archive_sha256": "e3284a44f1052f1c454c90d418faa244516c2470bf232b455ea18fc4f5fa6028",
+    "license": "GPL-3.0",
+    "signature_verified": false,
+    "trust": "GitHub HTTPS release metadata digest and locally computed SHA256; not maintainer signature or reproducible-build proof"
+  },
+  "driver": {
+    "name": "Wintun",
+    "version": "0.14.1",
+    "delivery": "embedded by upstream sing-tun v0.4.29; no external DLL loading by LineGuard",
+    "official_url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+    "archive_sha256": "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51",
+    "amd64_dll_sha256": "e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce",
+    "upstream_embedded_source_url": "https://raw.githubusercontent.com/MetaCubeX/sing-tun/v0.4.29/internal/wintun/amd64/wintun.dll",
+    "source_file_matches_official_dll": true,
+    "release_embedded_bytes_verified": false,
+    "authenticode_verified": false,
+    "license": "Wintun prebuilt binaries license; source code license is not a substitute"
+  },
+  "bundled": false,
+  "runtime_downloads": false,
+  "license_acceptance": "explicit administrator confirmation required for offline import; no automatic agreement"
+}
