@@ -17,6 +17,8 @@ const TEXT: Color32 = Color32::from_rgb(226, 233, 242);
 const MUTED: Color32 = Color32::from_rgb(146, 160, 179);
 const ACCENT: Color32 = Color32::from_rgb(143, 180, 215);
 const AMBER: Color32 = Color32::from_rgb(226, 185, 123);
+const STRONG: Color32 = Color32::from_rgb(242, 246, 251);
+const PRIMARY: Color32 = Color32::from_rgb(58, 96, 134);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
@@ -54,28 +56,18 @@ pub struct App {
     console: bool,
     font_available: bool,
     core_info: Option<lineguard_core::engine::Info>,
+    icon: egui::TextureHandle,
 }
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, console: bool) -> Self {
         let ctx = cc.egui_ctx.clone();
-        let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = BG;
-        visuals.window_fill = PANEL;
-        visuals.extreme_bg_color = BG;
-        visuals.faint_bg_color = PANEL;
-        visuals.override_text_color = Some(TEXT);
-        visuals.selection.bg_fill = Color32::from_rgb(50, 76, 100);
-        visuals.widgets.inactive.bg_fill = RAISED;
-        visuals.widgets.inactive.weak_bg_fill = PANEL;
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, LINE);
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(44, 59, 77);
-        visuals.widgets.hovered.weak_bg_fill = RAISED;
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
-        visuals.widgets.active.bg_fill = Color32::from_rgb(51, 72, 94);
-        ctx.set_visuals(visuals);
+        // Always dark: egui would otherwise follow a light OS theme and mix light widgets and
+        // black strong text into this dark layout.
+        ctx.set_theme(egui::Theme::Dark);
+        ctx.set_visuals_of(egui::Theme::Dark, visuals());
         ctx.style_mut_of(egui::Theme::Dark, |style| {
             style.spacing.item_spacing = Vec2::new(12.0, 12.0);
-            style.spacing.button_padding = Vec2::new(16.0, 10.0);
+            style.spacing.button_padding = Vec2::new(16.0, 9.0);
             style.spacing.interact_size.y = 36.0;
             style.animation_time = 0.14;
             style
@@ -83,8 +75,19 @@ impl App {
                 .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
             style
                 .text_styles
-                .insert(egui::TextStyle::Button, egui::FontId::proportional(15.0));
+                .insert(egui::TextStyle::Button, egui::FontId::proportional(14.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Small, egui::FontId::proportional(12.0));
         });
+        let icon = ctx.load_texture(
+            "lineguard-icon",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [64, 64],
+                include_bytes!("../../../assets/lineguard-64.rgba"),
+            ),
+            egui::TextureOptions::LINEAR,
+        );
         let font_available = load_font(&ctx);
         let system_animations = system_animations();
         let (sender, jobs) = mpsc::sync_channel::<Job>(2);
@@ -146,6 +149,7 @@ impl App {
             console,
             font_available,
             core_info: None,
+            icon,
         };
         app.submit(Command::Status);
         app
@@ -237,7 +241,10 @@ impl App {
             .show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    emblem(ui, 28.0, ACCENT);
+                    ui.add(egui::Image::new(egui::load::SizedTexture::new(
+                        self.icon.id(),
+                        [30.0, 30.0],
+                    )));
                     ui.label(RichText::new("LineGuard").size(21.0).strong());
                 });
                 ui.add_space(4.0);
@@ -405,7 +412,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.add_enabled(
                     false,
-                    egui::Button::new("连接隧道 · 尚不可用").min_size(Vec2::new(210.0, 42.0)),
+                    primary("连接隧道 · 尚不可用").min_size(Vec2::new(210.0, 40.0)),
                 )
                 .on_disabled_hover_text(
                     "Connect 返回 Unsupported，不修改网络或已存在的管理员实验规则。",
@@ -543,7 +550,7 @@ impl App {
             if ui
                 .add_enabled(
                     !self.pending && self.status.is_some() && !self.path.is_empty(),
-                    egui::Button::new("校验并加密保存"),
+                    primary("校验并加密保存"),
                 )
                 .clicked()
             {
@@ -667,6 +674,61 @@ impl eframe::App for App {
             });
         });
     }
+}
+fn visuals() -> egui::Visuals {
+    let mut v = egui::Visuals::dark();
+    v.panel_fill = BG;
+    v.window_fill = PANEL;
+    v.extreme_bg_color = BG;
+    v.faint_bg_color = PANEL;
+    v.code_bg_color = RAISED;
+    v.override_text_color = Some(TEXT);
+    v.weak_text_color = Some(MUTED);
+    v.hyperlink_color = ACCENT;
+    v.warn_fg_color = AMBER;
+    v.selection.bg_fill = Color32::from_rgb(50, 76, 100);
+    v.selection.stroke = Stroke::new(1.0, STRONG);
+    v.window_stroke = Stroke::new(1.0, LINE);
+    let radius = egui::CornerRadius::same(8);
+    let w = &mut v.widgets;
+    // Separators and frames use the non-interactive stroke; keep it a quiet line, not white.
+    w.noninteractive.bg_stroke = Stroke::new(1.0, LINE);
+    w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
+    w.noninteractive.bg_fill = PANEL;
+    w.noninteractive.weak_bg_fill = PANEL;
+    w.inactive.bg_fill = RAISED;
+    w.inactive.weak_bg_fill = RAISED;
+    w.inactive.bg_stroke = Stroke::new(1.0, LINE);
+    w.inactive.fg_stroke = Stroke::new(1.0, TEXT);
+    w.hovered.bg_fill = Color32::from_rgb(40, 52, 68);
+    w.hovered.weak_bg_fill = Color32::from_rgb(40, 52, 68);
+    w.hovered.bg_stroke = Stroke::new(1.0, ACCENT.gamma_multiply(0.6));
+    w.hovered.fg_stroke = Stroke::new(1.5, STRONG);
+    w.hovered.expansion = 0.0;
+    // `strong()` text uses the active foreground colour.
+    w.active.bg_fill = Color32::from_rgb(48, 66, 86);
+    w.active.weak_bg_fill = Color32::from_rgb(48, 66, 86);
+    w.active.bg_stroke = Stroke::new(1.0, ACCENT);
+    w.active.fg_stroke = Stroke::new(1.5, STRONG);
+    w.active.expansion = 0.0;
+    w.open = w.active;
+    for state in [
+        &mut w.noninteractive,
+        &mut w.inactive,
+        &mut w.hovered,
+        &mut w.active,
+        &mut w.open,
+    ] {
+        state.corner_radius = radius;
+    }
+    v
+}
+/// The one emphasised action per card.
+fn primary(text: &str) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(text).color(STRONG))
+        .fill(PRIMARY)
+        .stroke(Stroke::new(1.0, PRIMARY.gamma_multiply(1.3)))
+        .corner_radius(9)
 }
 fn card() -> egui::Frame {
     egui::Frame::new()

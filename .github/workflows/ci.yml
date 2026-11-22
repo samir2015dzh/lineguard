@@ -80,3 +80,30 @@ jobs:
       - name: Smoke test (admin, block-all-IP then rescue)
         shell: pwsh
         run: ./scripts/ci-windows-smoke.ps1 -Bin bin
+
+  # Review aid only: renders the GUI on a disposable Windows VM (software OpenGL) and saves a
+  # screenshot artifact. Never blocks the build.
+  ui-screenshot:
+    name: GUI screenshot (review aid)
+    needs: linux
+    runs-on: windows-2022
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-exes
+          path: bin
+      - name: Capture GUI
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci-ui-screenshot.ps1 -Bin bin -Out ui-screenshot.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshot
+          path: ui-screenshot.png
+          if-no-files-found: ignore
+          retention-days: 14
