@@ -38,20 +38,33 @@ Step 'versions and read-only rescue inspect'
 $r = Run $rescue @('--version'); Expect ($r.Code -eq 0 -and $r.Out -match 'PermitRevoke\.v3') 'rescue --version carries v3 marker'
 $r = Run $rescue @('inspect'); Expect ($r.Code -eq 0) 'rescue inspect (read-only) succeeds'
 
-Step 'console IPC: service --console + ctl'
-# Console mode requires a non-SYSTEM user whose token carries a logon-session SID.
-& whoami.exe /user | Out-Host
-& whoami.exe /groups /fo csv | Select-String -Pattern 'Logon|LogonSession|S-1-5-5-' | Out-Host
-$p = Start-Process -FilePath $svc -ArgumentList '--console' -PassThru -NoNewWindow
-Start-Sleep -Seconds 2
+Step 'console IPC in a real logon session of a throwaway user'
+# The runner token has no logon-session SID, which console mode requires by design, so start a
+# genuine logon session (CreateProcessWithLogonW) for a temporary local user instead.
+$work = 'C:\lgsmoke'
+New-Item -ItemType Directory -Force -Path $work | Out-Null
+Copy-Item (Join-Path $Bin '*.exe') $work
+Copy-Item 'examples/offline.example.json' $work
+Copy-Item 'scripts/ci-windows-console.ps1' $work
+$pw = 'Lg!' + [guid]::NewGuid().ToString('N') + 'a1'
+& net.exe user lgsmoke $pw /add | Out-Null
+& icacls.exe $work /grant 'lgsmoke:(OI)(CI)M' | Out-Null
+$cred = [pscredential]::new('lgsmoke', (ConvertTo-SecureString $pw -AsPlainText -Force))
+$pwsh = (Get-Command pwsh).Source
 try {
-  $r = Run $ctl @('--console', 'status'); Expect ($r.Code -eq 0) 'ctl --console status over named pipe'
-  $r = Run $ctl @('--console', 'import', (Resolve-Path 'examples/offline.example.json').Path)
-  Expect ($r.Code -eq 0) 'offline import is validated and saved'
-  $r = Run $ctl @('--console', 'diagnostics')
-  Expect ($r.Code -eq 0 -and $r.Out -notmatch 'example-not-a-real-credential') 'diagnostics succeed and do not leak the password'
-  $r = Run $ctl @('--console', 'connect'); Expect ($r.Code -ne 0) 'connect stays unsupported'
-} finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+  Start-Process -FilePath $pwsh -Credential $cred -LoadUserProfile -Wait -WorkingDirectory $work `
+    -ArgumentList @('-NoProfile', '-NonInteractive', '-File', "$work\ci-windows-console.ps1", '-Dir', $work)
+} catch { Write-Host "logon-session launch failed: $_" }
+$result = Join-Path $work 'console-result.txt'
+if (Test-Path $result) {
+  $text = Get-Content $result -Raw -Encoding utf8
+  Write-Host $text
+  Expect ($text -match 'DONE') 'console test ran to completion'
+  foreach ($line in ($text -split "`r?`n")) {
+    if ($line -like 'FAIL: *') { $failures.Add('console: ' + $line.Substring(6)) }
+  }
+} else { Expect $false 'console test produced a result file' }
+& net.exe user lgsmoke /delete | Out-Null
 
 Step 'preconfigure LineGuardPreview service (not started)'
 & sc.exe create LineGuardPreview binPath= "`"$svc`"" start= auto obj= LocalSystem | Out-Host
