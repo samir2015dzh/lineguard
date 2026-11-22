@@ -21,7 +21,7 @@
 
 LineGuard 的目标是：只允许经过身份核验的代理核心，经独占 TUN 走向**单一**节点，其余流量一律由 Windows 过滤平台（WFP）在内核阻断；出任何问题都先阻断、再恢复，绝不“失败放行”。完整设想见 [docs/整体思路.md](docs/整体思路.md)（其中数字是原始设想，并非本项目实测）。
 
-## 当前进度（0.3.0-preview.3）
+## 当前进度（0.3.0-preview.4）
 
 | 模块 | 状态 |
 |---|---|
@@ -44,20 +44,18 @@ LineGuard 的目标是：只允许经过身份核验的代理核心，经独占 
 
 | 程序 | 作用 |
 |---|---|
-| `lineguard.exe` | 图形界面（只读状态、导入、诊断；没有放行按钮） |
+| `lineguard.exe` | 图形界面：平时只需打开它；可一键启动本机后台（没有放行按钮） |
 | `lineguard-service.exe` | 后台服务（SCM 服务或 `--console`） |
 | `lineguardctl.exe` | 命令行控制与管理员实验命令 |
 | `lineguard-rescue.exe` | 独立救援，不依赖服务或管道 |
 
 ## 快速试用（不改网络）
 
-```powershell
-.\lineguard-service.exe --console
-# 另开一个同用户终端：
-.\lineguardctl.exe --console status
-.\lineguardctl.exe --console import .\examples\offline.example.json
-.\lineguard-rescue.exe inspect --console
-```
+1. 把下载包解压到一个文件夹（4 个 exe 必须在同一目录）。
+2. 双击 `lineguard.exe`，点击 **启动本机后台**。界面会在后台静默启动 `lineguard-service.exe`（当前用户、无窗口），关闭界面时它会一起退出。
+3. 在「离线线路」页导入 `examples/offline.example.json` 试试格式校验。
+
+如果已经安装了系统服务 `LineGuardPreview`，界面会自动连接它，不需要点启动。`lineguardctl.exe` 和 `lineguard-rescue.exe` 是命令行工具，只在管理员实验和紧急恢复时使用，平时不用打开。
 
 普通启动不安装也不撤销任何规则。危险命令（全阻断、独占 TUN、窄放行）和数据目录说明见 **[docs/USAGE.md](docs/USAGE.md)**。
 

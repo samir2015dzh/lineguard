@@ -939,7 +939,7 @@ checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
 
 [[package]]
 name = "lineguard-agent"
-version = "0.3.0-preview.3"
+version = "0.3.0-preview.4"
 dependencies = [
  "lineguard-core",
  "serde",
@@ -951,7 +951,7 @@ dependencies = [
 
 [[package]]
 name = "lineguard-core"
-version = "0.3.0-preview.3"
+version = "0.3.0-preview.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -962,7 +962,7 @@ dependencies = [
 
 [[package]]
 name = "lineguard-ui"
-version = "0.3.0-preview.3"
+version = "0.3.0-preview.4"
 dependencies = [
  "eframe",
  "lineguard-agent",

@@ -5,7 +5,11 @@ use lineguard_core::{Command, Config, Diagnostic, MAX_IMPORT, Reply, Request, Sn
 use std::{
     fs::File,
     io::Read,
-    sync::mpsc::{self, Receiver, SyncSender},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, SyncSender},
+    },
     time::Instant,
 };
 
@@ -17,6 +21,9 @@ const TEXT: Color32 = Color32::from_rgb(226, 233, 242);
 const MUTED: Color32 = Color32::from_rgb(146, 160, 179);
 const ACCENT: Color32 = Color32::from_rgb(143, 180, 215);
 const AMBER: Color32 = Color32::from_rgb(226, 185, 123);
+const BACKEND_MISSING: &str = "未找到本机后台";
+const STRONG: Color32 = Color32::from_rgb(242, 246, 251);
+const PRIMARY: Color32 = Color32::from_rgb(58, 96, 134);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
@@ -27,6 +34,8 @@ enum Page {
 }
 enum Job {
     Request(Request),
+    /// After starting the background service: poll its console endpoint until it answers.
+    AwaitBackend(Request),
     Import {
         path: String,
         generation: u64,
@@ -51,31 +60,26 @@ pub struct App {
     sequence: u64,
     message: Option<(bool, String)>,
     path: String,
-    console: bool,
+    /// Which endpoint the worker currently talks to; switched automatically when only the
+    /// other one answers (unless `--console` pinned it).
+    console: Arc<AtomicBool>,
+    /// Background service this GUI started; killed with the GUI (kill-on-close Job).
+    backend: Option<crate::backend::Backend>,
+    backend_error: Option<String>,
     font_available: bool,
     core_info: Option<lineguard_core::engine::Info>,
+    icon: egui::TextureHandle,
 }
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, console: bool) -> Self {
         let ctx = cc.egui_ctx.clone();
-        let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = BG;
-        visuals.window_fill = PANEL;
-        visuals.extreme_bg_color = BG;
-        visuals.faint_bg_color = PANEL;
-        visuals.override_text_color = Some(TEXT);
-        visuals.selection.bg_fill = Color32::from_rgb(50, 76, 100);
-        visuals.widgets.inactive.bg_fill = RAISED;
-        visuals.widgets.inactive.weak_bg_fill = PANEL;
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, LINE);
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(44, 59, 77);
-        visuals.widgets.hovered.weak_bg_fill = RAISED;
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
-        visuals.widgets.active.bg_fill = Color32::from_rgb(51, 72, 94);
-        ctx.set_visuals(visuals);
+        // Always dark: egui would otherwise follow a light OS theme and mix light widgets and
+        // black strong text into this dark layout.
+        ctx.set_theme(egui::Theme::Dark);
+        ctx.set_visuals_of(egui::Theme::Dark, visuals());
         ctx.style_mut_of(egui::Theme::Dark, |style| {
             style.spacing.item_spacing = Vec2::new(12.0, 12.0);
-            style.spacing.button_padding = Vec2::new(16.0, 10.0);
+            style.spacing.button_padding = Vec2::new(16.0, 9.0);
             style.spacing.interact_size.y = 36.0;
             style.animation_time = 0.14;
             style
@@ -83,17 +87,35 @@ impl App {
                 .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
             style
                 .text_styles
-                .insert(egui::TextStyle::Button, egui::FontId::proportional(15.0));
+                .insert(egui::TextStyle::Button, egui::FontId::proportional(14.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Small, egui::FontId::proportional(12.0));
         });
+        let icon = ctx.load_texture(
+            "lineguard-icon",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [64, 64],
+                include_bytes!("../../../assets/lineguard-64.rgba"),
+            ),
+            egui::TextureOptions::LINEAR,
+        );
         let font_available = load_font(&ctx);
         let system_animations = system_animations();
         let (sender, jobs) = mpsc::sync_channel::<Job>(2);
         let (results, receiver) = mpsc::sync_channel(2);
         let worker_ctx = ctx.clone();
+        let mode = Arc::new(AtomicBool::new(console));
+        let worker_mode = mode.clone();
         std::thread::spawn(move || {
             while let Ok(job) = jobs.recv() {
+                let mut wait = false;
                 let (id, request) = match job {
                     Job::Request(request) => (request.id, Ok(request)),
+                    Job::AwaitBackend(request) => {
+                        wait = true;
+                        (request.id, Ok(request))
+                    }
                     Job::Import {
                         path,
                         generation,
@@ -122,8 +144,35 @@ impl App {
                         (id, result.map_err(str::to_owned))
                     }
                 };
-                let reply = request.and_then(|request| call(Endpoint { console }, request).map(|r| r.result)
-                    .map_err(|_| "无法连接可信本机服务。请确认服务已启动且四个程序位于同一目录；console 模式两端均需 --console。".into()));
+                let reply = request.and_then(|request| {
+                    if wait {
+                        // The service we just started needs a moment to open its pipe.
+                        for _ in 0..25 {
+                            let Some(attempt) = resend(&request) else {
+                                break;
+                            };
+                            if let Ok(r) = call(Endpoint { console: true }, attempt) {
+                                worker_mode.store(true, Ordering::Relaxed);
+                                return Ok(r.result);
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+                        }
+                        return Err(BACKEND_MISSING.into());
+                    }
+                    let first = worker_mode.load(Ordering::Relaxed);
+                    let fallback = resend(&request);
+                    match call(Endpoint { console: first }, request) {
+                        Ok(r) => Ok(r.result),
+                        Err(_) if !console && fallback.is_some() => {
+                            // Try the other endpoint: an installed service or a per-user one.
+                            let r = call(Endpoint { console: !first }, fallback.unwrap())
+                                .map_err(|_| BACKEND_MISSING.to_string())?;
+                            worker_mode.store(!first, Ordering::Relaxed);
+                            Ok(r.result)
+                        }
+                        Err(_) => Err(BACKEND_MISSING.into()),
+                    }
+                });
                 if results.send(ResultMessage { id, reply }).is_err() {
                     break;
                 }
@@ -143,9 +192,12 @@ impl App {
             sequence: 0,
             message: None,
             path: String::new(),
-            console,
+            console: mode,
+            backend: None,
+            backend_error: None,
             font_available,
             core_info: None,
+            icon,
         };
         app.submit(Command::Status);
         app
@@ -217,11 +269,85 @@ impl App {
                     self.message = Some((true, message));
                 }
                 Err(message) => {
-                    self.message = Some((true, message));
+                    // A missing backend gets its own card with a start button, not an error banner.
+                    if message != BACKEND_MISSING {
+                        self.message = Some((true, message));
+                    }
                     self.status = None;
                 }
             }
         }
+    }
+    /// One click instead of opening the service by hand: start the per-user background
+    /// service next to this GUI, then wait for its pipe.
+    fn start_backend(&mut self) {
+        if self.pending || self.backend.is_some() {
+            return;
+        }
+        match crate::backend::Backend::start() {
+            Ok(backend) => {
+                self.backend = Some(backend);
+                self.backend_error = None;
+                self.sequence += 1;
+                let request = Request {
+                    version: VERSION,
+                    id: self.sequence,
+                    command: Command::Status,
+                };
+                if self.sender.try_send(Job::AwaitBackend(request)).is_ok() {
+                    self.pending = true;
+                }
+            }
+            Err(e) => self.backend_error = Some(format!("无法启动后台：{e}")),
+        }
+    }
+    fn backend_card(&mut self, ui: &mut egui::Ui) {
+        egui::Frame::new()
+            .fill(Color32::from_rgb(28, 34, 46))
+            .stroke(Stroke::new(1.0, AMBER.gamma_multiply(0.45)))
+            .corner_radius(14)
+            .inner_margin(20)
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("后台未运行").size(18.0).strong());
+                        ui.label(
+                            RichText::new(
+                                "界面需要本机后台读取状态和保存配置。点击启动即可，无需手动打开其他程序。",
+                            )
+                            .color(MUTED),
+                        );
+                        ui.label(
+                            RichText::new(
+                                "以当前用户运行预览后台：不安装服务、不改网络；关闭界面时一起退出。",
+                            )
+                            .size(12.0)
+                            .color(MUTED),
+                        );
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let label = if self.pending && self.backend.is_some() {
+                            "正在启动…"
+                        } else {
+                            "启动本机后台"
+                        };
+                        if ui
+                            .add_enabled(
+                                !self.pending,
+                                primary(label).min_size(Vec2::new(150.0, 40.0)),
+                            )
+                            .clicked()
+                        {
+                            self.start_backend();
+                        }
+                    });
+                });
+                if let Some(error) = &self.backend_error {
+                    ui.label(RichText::new(error).color(AMBER));
+                }
+            });
+        ui.add_space(14.0);
     }
     fn navigate(&mut self, page: Page) {
         if self.page != page {
@@ -237,7 +363,10 @@ impl App {
             .show(ui, |ui| {
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    emblem(ui, 28.0, ACCENT);
+                    ui.add(egui::Image::new(egui::load::SizedTexture::new(
+                        self.icon.id(),
+                        [30.0, 30.0],
+                    )));
                     ui.label(RichText::new("LineGuard").size(21.0).strong());
                 });
                 ui.add_space(4.0);
@@ -289,15 +418,15 @@ impl App {
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.label(
-                        RichText::new("v0.3 · 未验证开发预览")
+                        RichText::new(concat!("v", env!("CARGO_PKG_VERSION"), " · 未验证开发预览"))
                             .size(12.0)
                             .color(MUTED),
                     );
                     ui.label(
-                        RichText::new(if self.console {
-                            "CONSOLE / 普通用户"
+                        RichText::new(if self.console.load(Ordering::Relaxed) {
+                            "本机后台 · 当前用户"
                         } else {
-                            "本机服务 / 按需刷新"
+                            "系统服务 · 按需刷新"
                         })
                         .size(11.0)
                         .color(ACCENT),
@@ -405,7 +534,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.add_enabled(
                     false,
-                    egui::Button::new("连接隧道 · 尚不可用").min_size(Vec2::new(210.0, 42.0)),
+                    primary("连接隧道 · 尚不可用").min_size(Vec2::new(210.0, 40.0)),
                 )
                 .on_disabled_hover_text(
                     "Connect 返回 Unsupported，不修改网络或已存在的管理员实验规则。",
@@ -543,7 +672,7 @@ impl App {
             if ui
                 .add_enabled(
                     !self.pending && self.status.is_some() && !self.path.is_empty(),
-                    egui::Button::new("校验并加密保存"),
+                    primary("校验并加密保存"),
                 )
                 .clicked()
             {
@@ -636,6 +765,12 @@ impl App {
 impl eframe::App for App {
     fn logic(&mut self, _: &egui::Context, _: &mut eframe::Frame) {
         self.drain();
+        if let Some(code) = self.backend.as_mut().and_then(|b| b.exited()) {
+            self.backend = None;
+            self.backend_error = Some(format!(
+                "后台已退出（代码 {code}）。如果已有另一个后台在运行，请点“刷新本机状态”。"
+            ));
+        }
     }
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         let system = system_animations();
@@ -660,6 +795,9 @@ impl eframe::App for App {
                     ui.add_space(14.0);
                     if dismiss { self.message = None; }
                 }
+                if self.status.is_none() {
+                    self.backend_card(ui);
+                }
                 if self.status.as_ref().is_some_and(|s| s.storage_error) { ui.colored_label(AMBER, "保存配置读取失败：已锁定导入以免覆盖，原文件保留。请运行独立只读诊断。"); }
                 match self.page { Page::Home => self.home(ui), Page::Profiles => self.profiles(ui), Page::Diagnostics => self.diagnostics(ui), Page::Settings => self.settings(ui) }
                 ui.add_space(18.0);
@@ -667,6 +805,76 @@ impl eframe::App for App {
             });
         });
     }
+}
+/// Only data-free requests are re-sent (to another endpoint or while a backend starts);
+/// an import carries secrets and is never duplicated.
+fn resend(request: &Request) -> Option<Request> {
+    let command = match &request.command {
+        Command::Status => Command::Status,
+        Command::Diagnostics => Command::Diagnostics,
+        Command::CoreInfo => Command::CoreInfo,
+        _ => return None,
+    };
+    Some(Request {
+        version: request.version,
+        id: request.id,
+        command,
+    })
+}
+fn visuals() -> egui::Visuals {
+    let mut v = egui::Visuals::dark();
+    v.panel_fill = BG;
+    v.window_fill = PANEL;
+    v.extreme_bg_color = BG;
+    v.faint_bg_color = PANEL;
+    v.code_bg_color = RAISED;
+    v.override_text_color = Some(TEXT);
+    v.weak_text_color = Some(MUTED);
+    v.hyperlink_color = ACCENT;
+    v.warn_fg_color = AMBER;
+    v.selection.bg_fill = Color32::from_rgb(50, 76, 100);
+    v.selection.stroke = Stroke::new(1.0, STRONG);
+    v.window_stroke = Stroke::new(1.0, LINE);
+    let radius = egui::CornerRadius::same(8);
+    let w = &mut v.widgets;
+    // Separators and frames use the non-interactive stroke; keep it a quiet line, not white.
+    w.noninteractive.bg_stroke = Stroke::new(1.0, LINE);
+    w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
+    w.noninteractive.bg_fill = PANEL;
+    w.noninteractive.weak_bg_fill = PANEL;
+    w.inactive.bg_fill = RAISED;
+    w.inactive.weak_bg_fill = RAISED;
+    w.inactive.bg_stroke = Stroke::new(1.0, LINE);
+    w.inactive.fg_stroke = Stroke::new(1.0, TEXT);
+    w.hovered.bg_fill = Color32::from_rgb(40, 52, 68);
+    w.hovered.weak_bg_fill = Color32::from_rgb(40, 52, 68);
+    w.hovered.bg_stroke = Stroke::new(1.0, ACCENT.gamma_multiply(0.6));
+    w.hovered.fg_stroke = Stroke::new(1.5, STRONG);
+    w.hovered.expansion = 0.0;
+    // `strong()` text uses the active foreground colour.
+    w.active.bg_fill = Color32::from_rgb(48, 66, 86);
+    w.active.weak_bg_fill = Color32::from_rgb(48, 66, 86);
+    w.active.bg_stroke = Stroke::new(1.0, ACCENT);
+    w.active.fg_stroke = Stroke::new(1.5, STRONG);
+    w.active.expansion = 0.0;
+    w.open = w.active;
+    for state in [
+        &mut w.noninteractive,
+        &mut w.inactive,
+        &mut w.hovered,
+        &mut w.active,
+        &mut w.open,
+    ] {
+        state.corner_radius = radius;
+    }
+    v
+}
+/// The one emphasised action per card.
+fn primary(text: &str) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(text).color(STRONG))
+        .fill(PRIMARY)
+        .stroke(Stroke::new(1.0, PRIMARY.gamma_multiply(1.3)))
+        .corner_radius(9)
 }
 fn card() -> egui::Frame {
     egui::Frame::new()
