@@ -264,12 +264,9 @@ pub fn require_service_sid() -> io::Result<()> {
     let token = process_token(unsafe { GetCurrentProcess() })?;
     require_service_token(token.0)
 }
-pub fn require_service_token(token: HANDLE) -> io::Result<()> {
-    use windows_sys::Win32::Security::{EqualSid, LookupAccountNameW};
-    let identity = Identity::from_token(token)?;
-    if identity.user != "S-1-5-18" || identity.session != 0 {
-        return Err(denied());
-    }
+/// Binary SID of `NT SERVICE\LineGuardPreview` (pointer-aligned buffer).
+fn service_sid() -> io::Result<Vec<usize>> {
+    use windows_sys::Win32::Security::LookupAccountNameW;
     let account = wide(r"NT SERVICE\LineGuardPreview");
     let mut sid_size = 0;
     let mut domain_size = 0;
@@ -304,6 +301,24 @@ pub fn require_service_token(token: HANDLE) -> io::Result<()> {
     {
         return Err(denied());
     }
+    Ok(sid)
+}
+/// String form used as the v3 ALE_USER_ID expectation; validated as a per-service SID.
+pub fn service_sid_string() -> io::Result<String> {
+    let mut sid = service_sid()?;
+    let text = sid_string(sid.as_mut_ptr().cast())?;
+    if !lineguard_core::permit::valid_service_sid(&text) {
+        return Err(denied());
+    }
+    Ok(text)
+}
+pub fn require_service_token(token: HANDLE) -> io::Result<()> {
+    use windows_sys::Win32::Security::EqualSid;
+    let identity = Identity::from_token(token)?;
+    if identity.user != "S-1-5-18" || identity.session != 0 {
+        return Err(denied());
+    }
+    let sid = service_sid()?;
     let groups = token_info(token, TokenGroups)?;
     let groups = unsafe { &*groups.as_ptr().cast::<TOKEN_GROUPS>() };
     for group in

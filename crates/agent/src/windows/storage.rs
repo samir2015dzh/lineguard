@@ -213,6 +213,39 @@ impl Store {
             folder(false)?.with_file_name("LineGuardGuardPreview"),
         )
     }
+    /// Same admin-only folder without taking the writer lock; used only to read expectations.
+    pub fn guard_journal_readonly() -> io::Result<Self> {
+        let identity = Identity::current()?;
+        Self::prepare_at(
+            Endpoint { console: false },
+            &identity,
+            false,
+            folder(false)?.with_file_name("LineGuardGuardPreview"),
+        )
+    }
+    pub fn save_permit(&self, journal: &lineguard_core::permit::Journal) -> io::Result<()> {
+        let bytes = journal.encode().map_err(io::Error::other)?;
+        self.atomic_write("permit-journal.json", &bytes)
+    }
+    /// Expectations for v3 readback comparison only; never treated as evidence of a permit.
+    pub fn load_permit(&self) -> io::Result<Option<lineguard_core::permit::Journal>> {
+        use std::os::windows::fs::OpenOptionsExt;
+        let path = self.directory.join("permit-journal.json");
+        if !self.directory.exists() || !reject_reparse(&path)? {
+            return Ok(None);
+        }
+        ensure_owner(&path, self.endpoint, &Identity::current()?)?;
+        let mut bytes = Vec::new();
+        fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(path)?
+            .take((lineguard_core::permit::MAX_JOURNAL + 1) as u64)
+            .read_to_end(&mut bytes)?;
+        lineguard_core::permit::Journal::decode(&bytes)
+            .map(Some)
+            .map_err(io::Error::other)
+    }
     pub fn network_journal(create: bool) -> io::Result<Self> {
         Self::prepare_at(
             Endpoint { console: false },
@@ -369,9 +402,11 @@ impl Store {
         directory: PathBuf,
     ) -> io::Result<Self> {
         let sddl = if endpoint.console {
+            // Explicit owner: an unfiltered admin token would otherwise default the owner to
+            // BUILTIN\Administrators, and ensure_owner (deliberately strict) would then refuse.
             format!(
-                "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{})",
-                identity.user
+                "O:{}D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{})",
+                identity.user, identity.user
             )
         } else {
             "O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)".into()

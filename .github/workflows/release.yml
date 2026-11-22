@@ -1,0 +1,50 @@
+# Publishes a GitHub pre-release from a version tag. Builds in CI so the published exes
+# are traceable to the tagged commit. Always a pre-release while M3 is unverified.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to create/publish (e.g. v0.3.0-preview.3)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain and MinGW
+        run: |
+          rustup show active-toolchain
+          sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64
+      - name: Check tag matches workspace version
+        run: |
+          version=$(python3 -c "import tomllib;print(tomllib.load(open('Cargo.toml','rb'))['workspace']['package']['version'])")
+          test "$TAG" = "v$version" || { echo "tag $TAG != v$version"; exit 1; }
+          test -f "docs/release-notes/$version.md"
+      - name: Test and build
+        run: |
+          cargo test --locked -p lineguard-core
+          RUSTFLAGS="--remap-path-prefix=$PWD=LineGuard" cargo build --locked --workspace --release --target x86_64-pc-windows-gnu
+          python3 scripts/inspect-artifacts.py
+          python3 scripts/package.py
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${TAG#v}
+          cd dist/m3
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "LineGuard $version（开发预览，危险/未验收/未签名）" \
+            --notes-file "$GITHUB_WORKSPACE/docs/release-notes/$version.md" \
+            lineguard-$version-source.zip \
+            lineguard-$version-windows-x64-M3-PARTIAL-DANGEROUS-UNVERIFIED-UNSIGNED.zip \
+            SHA256SUMS

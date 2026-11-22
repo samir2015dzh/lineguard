@@ -23,6 +23,14 @@ fn run() -> io::Result<()> {
             ));
         }
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        if args.as_slice() == ["guard", "permit", "inspect"] {
+            let evidence = lineguard_agent::inspect_permits()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&evidence).map_err(io::Error::other)?
+            );
+            return Ok(());
+        }
         if args.as_slice() == ["guard", "inspect"] {
             println!("{}", lineguard_agent::inspect_guard_details()?);
             return Ok(());
@@ -40,7 +48,7 @@ fn run() -> io::Result<()> {
             }
             _ => {
                 return Err(io::Error::other(
-                    "危险操作用法：guard inspect | guard install --experimental-vm-only --confirm BLOCK-ALL-IP | guard remove --confirm ALLOW-DIRECT",
+                    "危险操作用法：guard inspect | guard permit inspect（只读） | guard install --experimental-vm-only --confirm BLOCK-ALL-IP | guard remove --confirm ALLOW-DIRECT",
                 ));
             }
         };
@@ -83,6 +91,25 @@ fn run() -> io::Result<()> {
         Some("diagnostics") => Command::Diagnostics,
         Some("connect") => Command::Connect,
         Some("core") if args.len() == 2 && args[1] == "info" => Command::CoreInfo,
+        Some("tun")
+            if !console && args.len() == 4 && args[1] == "open" && args[2] == "--confirm" =>
+        {
+            let response = call(
+                endpoint,
+                Request {
+                    version: VERSION,
+                    id: 1,
+                    command: Command::Status,
+                },
+            )?;
+            let Reply::Status { snapshot } = response.result else {
+                return Err(io::Error::other("无法取得配置代次"));
+            };
+            Command::OpenNarrowPath {
+                expected_generation: snapshot.generation,
+                confirmation: args[3].clone(),
+            }
+        }
         Some("core" | "tun")
             if !console
                 && args.len() == 5
@@ -147,7 +174,7 @@ fn run() -> io::Result<()> {
         }
         _ => {
             println!(
-                "LineGuard M3管理开发预览（数据通路未实现；没有防泄露保证）\n用法：lineguardctl [--console] status | diagnostics | connect | import <离线JSON文件>\ncore manifest | core inbox | core info | core import <exe> --confirm ACCEPT-MIHOMO-GPL3-AND-EMBEDDED-WINTUN | core check <线路序号> --confirm CHECK-CONFIG-NO-TUNNEL\ntun start <线路序号> --confirm START-EXCLUSIVE-TUN-BLOCKED（仅独占隔离TUN，全阻断保留，不能联网）"
+                "LineGuard M3管理开发预览（数据通路未实现；没有防泄露保证）\n用法：lineguardctl [--console] status | diagnostics | connect | import <离线JSON文件>\ncore manifest | core inbox | core info | core import <exe> --confirm ACCEPT-MIHOMO-GPL3-AND-EMBEDDED-WINTUN | core check <线路序号> --confirm CHECK-CONFIG-NO-TUNNEL\ntun start <线路序号> --confirm START-EXCLUSIVE-TUN-BLOCKED（仅独占隔离TUN，全阻断保留，不能联网）\ntun open --confirm OPEN-NARROW-DATA-PATH（仅隔离VM实验：在已隔离TUN上加v3窄许可；未验收，不是保护）"
             );
             return Ok(());
         }

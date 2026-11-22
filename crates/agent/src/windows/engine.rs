@@ -461,6 +461,9 @@ struct Active {
     store: Store,
     physical: lineguard_core::network::Interface,
     physical_routes: Vec<lineguard_core::network::Route>,
+    endpoint: (std::net::Ipv4Addr, u16),
+    /// Set only after the v3 packet permits read back exactly; tick then requires them to stay so.
+    permit: Option<lineguard_core::permit::Params>,
 }
 /// The pipe thread is the sole owner. No detached process, retry task or stale async result exists.
 pub(super) struct Lifecycle {
@@ -567,6 +570,8 @@ impl Lifecycle {
             store,
             physical,
             physical_routes,
+            endpoint: (ip, profile.port),
+            permit: None,
         });
         let result = (|| {
             let active = self
@@ -624,6 +629,8 @@ impl Lifecycle {
         // If either the barrier or poststate cannot be proved, do not destroy evidence or user edits.
         let result = (|| {
             wfp::ensure_closed()?;
+            // Permits are revoked before the core stops (never a window with core gone, permit kept).
+            super::permit::revoke_all()?;
             super::network::precheck_restore(&active.lease)?;
             active.child.stop()?;
             super::network::restore(&active.store, &mut active.lease)
@@ -648,6 +655,100 @@ impl Lifecycle {
             }
         }
     }
+    /// Fresh native evidence for the active lifecycle; any mismatch is a reason to close.
+    fn health(&self, generation: u64) -> io::Result<()> {
+        let active = self
+            .active
+            .as_ref()
+            .ok_or_else(|| io::Error::other("生命周期不存在"))?;
+        if generation != active.lease.generation || !active.child.running()? {
+            return Err(io::Error::other("配置代次变化或核心退出"));
+        }
+        if wfp::inspect_m2()?.state != lineguard_core::guard::State::Configured {
+            return Err(io::Error::other("基线漂移"));
+        }
+        let Some((_, Some(post))) = super::network::owned(&active.lease)? else {
+            return Err(io::Error::other("独占接口已消失"));
+        };
+        if active.lease.expected_after.as_ref() != Some(&post) {
+            return Err(io::Error::other("TUN/路由后态变化"));
+        }
+        let now = super::network::interfaces()?;
+        let routes = super::network::routes()?
+            .into_iter()
+            .filter(|r| r.luid == active.physical.luid)
+            .collect::<Vec<_>>();
+        if now.iter().find(|i| i.luid == active.physical.luid) != Some(&active.physical)
+            || routes != active.physical_routes
+        {
+            return Err(io::Error::other("物理网络发生变化"));
+        }
+        // Quarantined must have no v3 object; NarrowOpen must keep exactly the 14 it installed.
+        let permit = super::permit::inspect_against(active.permit.as_ref())?;
+        let wanted = if active.permit.is_some() {
+            lineguard_core::permit::State::Open
+        } else {
+            lineguard_core::permit::State::Absent
+        };
+        if permit.state != wanted {
+            return Err(io::Error::other("v3许可回读与生命周期不符"));
+        }
+        Ok(())
+    }
+    /// Admin-requested final enabling on an already quarantined exclusive TUN: fresh health
+    /// evidence, then gate transaction, then packet-permit transaction. Any failure closes the
+    /// lifecycle (independent barrier → revoke permits → stop core → restore), never retries.
+    pub fn open_narrow(&mut self, generation: u64, confirmation: &str) -> io::Result<()> {
+        use lineguard_core::{network::RunPhase, permit as model};
+        if confirmation != model::OPEN_INTENT
+            || self.recovery_failed
+            || self.status.phase != RunPhase::Quarantined
+        {
+            return Err(io::Error::other(
+                "仅在已隔离的独占TUN上、以明确意图启用窄数据通路；不并发、不自动重试",
+            ));
+        }
+        security::require_service_sid()?;
+        let result = (|| {
+            self.health(generation)?;
+            let active = self
+                .active
+                .as_ref()
+                .ok_or_else(|| io::Error::other("生命周期不存在"))?;
+            let tun = active
+                .lease
+                .owned_luid
+                .ok_or_else(|| io::Error::other("独占TUN LUID未回读"))?;
+            let params = super::permit::params_for(
+                tun,
+                active.physical.luid,
+                active.endpoint.0,
+                active.endpoint.1,
+            )?;
+            super::permit::install_gate(&params, model::GATE_INTENT)?;
+            // The TUN evidence above is from this same call, after the gate commit re-check it.
+            let Some((_, Some(post))) = super::network::owned(&active.lease)? else {
+                return Err(io::Error::other("独占接口在门安装后消失"));
+            };
+            let tun_observed = active.lease.expected_after.as_ref() == Some(&post);
+            super::permit::open(&params, model::OPEN_INTENT, tun_observed)?;
+            Ok(params)
+        })();
+        match result {
+            Ok(params) => {
+                if let Some(active) = self.active.as_mut() {
+                    active.permit = Some(params);
+                }
+                self.status.phase = RunPhase::NarrowOpen;
+                self.status.detail = "v3窄许可14条回读完整：仅独占TUN与单一节点在策略上被允许；M2基线保留。执行效果、旁路、DNS与泄露均未验收，不是保护状态".into();
+                Ok(())
+            }
+            Err(error) => {
+                self.close_active("窄数据通路启用失败；已尝试先阻断再撤许可")?;
+                Err(error)
+            }
+        }
+    }
     pub fn tick(&mut self, generation: u64) -> bool {
         if self.recovery_failed
             || self.active.is_none()
@@ -656,35 +757,7 @@ impl Lifecycle {
             return false;
         }
         self.last_poll = std::time::Instant::now();
-        let result = (|| {
-            let active = self
-                .active
-                .as_ref()
-                .ok_or_else(|| io::Error::other("生命周期不存在"))?;
-            if generation != active.lease.generation || !active.child.running()? {
-                return Err(io::Error::other("配置代次变化或核心退出"));
-            }
-            if wfp::inspect_m2()?.state != lineguard_core::guard::State::Configured {
-                return Err(io::Error::other("基线漂移"));
-            }
-            let Some((_, Some(post))) = super::network::owned(&active.lease)? else {
-                return Err(io::Error::other("独占接口已消失"));
-            };
-            if active.lease.expected_after.as_ref() != Some(&post) {
-                return Err(io::Error::other("TUN/路由后态变化"));
-            }
-            let now = super::network::interfaces()?;
-            let routes = super::network::routes()?
-                .into_iter()
-                .filter(|r| r.luid == active.physical.luid)
-                .collect::<Vec<_>>();
-            if now.iter().find(|i| i.luid == active.physical.luid) != Some(&active.physical)
-                || routes != active.physical_routes
-            {
-                return Err(io::Error::other("物理网络发生变化"));
-            }
-            Ok(())
-        })();
+        let result = self.health(generation);
         if result.is_err() {
             let _ = self.close_active("健康证据失效");
             return true;

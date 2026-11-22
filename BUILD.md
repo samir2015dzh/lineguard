@@ -1,4 +1,6 @@
-# M3 管理预览构建说明（不安装服务、不运行测试）
+# M3 管理预览构建说明
+
+> 0.3.0-preview.3 起：CI（`.github/workflows/ci.yml`）在 Linux 与 Windows 上构建并实际运行 core 测试，另有一次性 Windows VM 冒烟测试；发布由 `.github/workflows/release.yml` 从版本标签在 CI 中构建。以下为本地构建说明。
 
 ## 固定输入
 
@@ -6,7 +8,8 @@
 - eframe/egui 0.37.0，glow 后端，无 WebView2/Node/Tauri。
 - Windows GNU 开发预览目标 `x86_64-pc-windows-gnu`；正式发布链建议 Windows MSVC。
 - 源码/工具链目录使用 remap-path-prefix；打包脚本仅白名单源码，不包含工具、target、数据、凭据。
-- 0.3.0-preview.2是M3未完成隔离管理预览；当前exe在target/x86_64-pc-windows-gnu/release，本轮未压包，dist/m3为旧preview.1，历史M2在dist/m2、M1在dist。第三方核心/驱动不捆绑。
+- 0.3.0-preview.3 是 M3 未完成的管理预览；exe 在 target/x86_64-pc-windows-gnu/release，`scripts/package.py` 打包到 dist/m3。第三方核心/驱动不捆绑。
+- 图标与版本信息：`crates/{agent,ui}/build.rs` 在 windows-gnu 目标下用 MinGW `windres`（可用 `WINDRES` 覆盖）把 `assets/lineguard.ico` 与 VERSIONINFO 嵌入所有 exe；MSVC 目标暂不嵌入。修改图标请运行 `python3 scripts/make-icon.py`（需 Pillow）。
 
 本地预览未指定最终开源许可证；不得擅自公开分发。依赖许可证需随最终发行核查，参见 SECURITY.md。
 

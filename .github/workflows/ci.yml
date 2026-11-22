@@ -1,0 +1,82 @@
+# Build, pure-logic tests, and a runtime smoke test that runs ONLY on disposable GitHub-hosted
+# Windows VMs (see windows-smoke). Full VM acceptance (tunnel, crash, cold boot) stays manual.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux build, core tests, Windows GNU cross build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (pinned by rust-toolchain.toml)
+        run: |
+          rustup show active-toolchain
+          rustup component add rustfmt
+      - name: MinGW-w64 linker
+        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Linux workspace build
+        run: cargo build --locked --workspace
+      - name: Core tests (executed)
+        run: cargo test --locked -p lineguard-core
+      - name: Windows GNU release build
+        run: cargo build --locked --workspace --release --target x86_64-pc-windows-gnu
+      - name: Core tests compile for Windows GNU
+        run: cargo build --locked -p lineguard-core --tests --target x86_64-pc-windows-gnu
+      - name: Inspect PE artifacts
+        run: python3 scripts/inspect-artifacts.py
+      - name: Upload Windows exes for the runtime smoke job
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exes
+          path: |
+            target/x86_64-pc-windows-gnu/release/lineguard.exe
+            target/x86_64-pc-windows-gnu/release/lineguard-service.exe
+            target/x86_64-pc-windows-gnu/release/lineguardctl.exe
+            target/x86_64-pc-windows-gnu/release/lineguard-rescue.exe
+          retention-days: 3
+
+  windows:
+    name: Windows core tests (native)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Core tests (executed; pure logic, no system changes)
+        run: cargo test --locked -p lineguard-core
+
+  # Runs the real exes on a disposable GitHub-hosted Windows VM: console IPC, then installs the
+  # experimental block-all-IP rules, checks enforcement, and removes them with the rescue.
+  # Never point this at a self-hosted or real machine.
+  windows-smoke:
+    name: Windows runtime smoke (disposable VM)
+    needs: linux
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-exes
+          path: bin
+      - name: Smoke test (admin, block-all-IP then rescue)
+        shell: pwsh
+        run: ./scripts/ci-windows-smoke.ps1 -Bin bin

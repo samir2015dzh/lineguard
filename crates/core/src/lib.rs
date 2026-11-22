@@ -2,6 +2,7 @@
 pub mod engine;
 pub mod guard;
 pub mod network;
+pub mod permit;
 use serde::{Deserialize, Serialize};
 use std::{fmt, net::IpAddr};
 use thiserror::Error;
@@ -11,7 +12,7 @@ pub fn wipe(bytes: &mut [u8]) {
     bytes.zeroize();
 }
 
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 pub const CONFIG_VERSION: u32 = 1;
 pub const MAX_FRAME: usize = 128 * 1024;
 pub const MAX_IMPORT: usize = 64 * 1024;
@@ -193,6 +194,12 @@ pub enum Command {
         index: usize,
         confirmation: String,
     },
+    /// Admin-only: on an already quarantined exclusive TUN, install the v3 gate then the packet
+    /// permits as the final step. Not Connect; never reachable from the ordinary UI.
+    OpenNarrowPath {
+        expected_generation: u64,
+        confirmation: String,
+    },
     Diagnostics,
 }
 
@@ -316,7 +323,7 @@ impl Controller {
             phase: match self.guard.state {
                 guard::State::Unknown => Phase::Unknown,
                 guard::State::Absent => Phase::Unprotected,
-                guard::State::Drift => Phase::Degraded,
+                guard::State::Drift | guard::State::Narrowed => Phase::Degraded,
                 guard::State::Configured | guard::State::Emergency => Phase::Blocked,
             },
             profiles: self.config.summaries(),
@@ -345,7 +352,9 @@ impl Controller {
                 Command::CoreInfo => Reply::CoreInfo {
                     info: self.core.clone(),
                 },
-                Command::StartExclusiveTun { .. } | Command::CoreCheck { .. } => failure(
+                Command::StartExclusiveTun { .. }
+                | Command::CoreCheck { .. }
+                | Command::OpenNarrowPath { .. } => failure(
                     FaultCode::Unsupported,
                     "只有Windows SYSTEM服务可执行管理员明确请求的核心隔离检查",
                 ),

@@ -323,6 +323,9 @@ pub enum RunPhase {
     Stopped,
     Starting,
     Quarantined,
+    /// Exact v3 narrow permits read back on top of the full M2 baseline. Policy only: no
+    /// enforcement, leak or tunnel-health proof, and never "protected".
+    NarrowOpen,
     RecoveryRequired,
     Failed,
 }

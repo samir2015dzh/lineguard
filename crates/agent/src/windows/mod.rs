@@ -1,6 +1,7 @@
 pub mod engine;
 pub mod ipc;
 pub mod network;
+pub mod permit;
 mod security;
 mod storage;
 pub mod wfp;
@@ -11,9 +12,18 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
+/// Tag a startup failure with its stage, keeping kind and OS code; never paths or identities.
+fn stage<T>(name: &str, result: io::Result<T>) -> io::Result<T> {
+    result.map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("stage={name} kind={:?} os={:?}", e.kind(), e.raw_os_error()),
+        )
+    })
+}
 pub fn serve(endpoint: Endpoint, stop: Arc<AtomicBool>, ready: impl FnOnce()) -> io::Result<()> {
-    let identity = security::Identity::for_endpoint(endpoint)?;
-    let store = storage::Store::open(endpoint, &identity)?;
+    let identity = stage("identity", security::Identity::for_endpoint(endpoint))?;
+    let store = stage("store", storage::Store::open(endpoint, &identity))?;
     let loaded = store.load();
     let (config, generation, saved, error) = match loaded {
         Ok(Some((config, generation))) => (config, generation, true, false),
@@ -28,7 +38,7 @@ pub fn serve(endpoint: Endpoint, stop: Arc<AtomicBool>, ready: impl FnOnce()) ->
     let mut controller = Controller::new(config, generation, saved, error, mode);
     let mut lifecycle = engine::Lifecycle::new();
     controller.observe_network(lifecycle.status());
-    ipc::serve(endpoint, identity, stop, ready, |event| {
+    let result = ipc::serve(endpoint, identity, stop, ready, |event| {
         if lifecycle.tick(controller.generation()) {
             controller.observe_network(lifecycle.status());
         }
@@ -52,6 +62,45 @@ pub fn serve(endpoint: Endpoint, stop: Arc<AtomicBool>, ready: impl FnOnce()) ->
                             .and_then(|profile| {
                                 lifecycle.start(profile, *expected_generation, *index, confirmation)
                             });
+                        controller.observe_network(lifecycle.status());
+                        controller.observe_guard(
+                            wfp::inspect()
+                                .unwrap_or_else(|_| lineguard_core::guard::Evidence::unknown()),
+                        );
+                        match result {
+                            Ok(()) => lineguard_core::Reply::Status {
+                                snapshot: controller.snapshot(),
+                            },
+                            Err(e) => lineguard_core::Reply::Failure {
+                                code: lineguard_core::FaultCode::Engine,
+                                message: e.to_string(),
+                            },
+                        }
+                    };
+                    return Some(lineguard_core::Response {
+                        version: lineguard_core::VERSION,
+                        id: request.id,
+                        result,
+                    });
+                }
+                lineguard_core::Command::OpenNarrowPath {
+                    expected_generation,
+                    confirmation,
+                } => {
+                    let result = if endpoint.console || !authority.elevated_admin {
+                        lineguard_core::Reply::Failure {
+                            code: lineguard_core::FaultCode::PermissionDenied,
+                            message:
+                                "窄数据通路仅接受经令牌核验的同会话管理员请求；普通UI无放行权限"
+                                    .into(),
+                        }
+                    } else if *expected_generation != controller.generation() {
+                        lineguard_core::Reply::Failure {
+                            code: lineguard_core::FaultCode::Conflict,
+                            message: "配置代次已变化；拒绝放行".into(),
+                        }
+                    } else {
+                        let result = lifecycle.open_narrow(*expected_generation, confirmation);
                         controller.observe_network(lifecycle.status());
                         controller.observe_guard(
                             wfp::inspect()
@@ -120,7 +169,8 @@ pub fn serve(endpoint: Endpoint, stop: Arc<AtomicBool>, ready: impl FnOnce()) ->
         Some(controller.handle(request, |config, generation| {
             store.save(config, generation).map_err(|_| ())
         }))
-    })
+    });
+    stage("pipe", result)
 }
 pub fn inspect(endpoint: Endpoint) -> io::Result<String> {
     let config_report = (|| {

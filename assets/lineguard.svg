@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>LineGuard</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="rgb(34, 43, 57)"/><stop offset="1" stop-color="rgb(16, 20, 28)"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="rgb(176, 207, 235)"/><stop offset="1" stop-color="rgb(110, 150, 190)"/>
+    </linearGradient>
+    <clipPath id="shieldclip"><path d="M512,196 C600,246 690,262 772,262 C772,520 720,716 512,840 C304,716 252,520 252,262 C334,262 424,246 512,196 Z"/></clipPath>
+    <clipPath id="tile"><rect x="48" y="48" width="928" height="928" rx="208"/></clipPath>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="208" fill="url(#bg)"/>
+  <g clip-path="url(#tile)">
+    <path d="M512,196 C600,246 690,262 772,262 C772,520 720,716 512,840 C304,716 252,520 252,262 C334,262 424,246 512,196 Z" fill="url(#shield)"/>
+    <rect x="0" y="474" width="1024" height="76" fill="rgb(16, 20, 28)" clip-path="url(#shieldclip)"/>
+    <rect x="150" y="502" width="662" height="20" rx="10" fill="rgb(226, 185, 123)"/>
+    <circle cx="812" cy="512" r="58" fill="rgb(226, 185, 123)"/>
+  </g>
+</svg>
