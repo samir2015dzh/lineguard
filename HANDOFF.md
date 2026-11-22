@@ -26,6 +26,11 @@
 5. 物理接口从不写回；一次性TUN上管理员改动不跨OS生命周期保留；无原子CAS。
 6. 回读字段严格比对（flags须恰为PERSISTENT等），真实Windows可能返回额外标志而被判Drift——属安全拒绝，需VM校准，不可放宽成猜测。
 
+## Windows实机证据（GitHub托管一次性VM，windows-2022，CI任务windows-smoke）
+2026-11-22首次全部通过（20项）：rescue `--version`/只读inspect；临时用户真实登录会话中console服务+命名管道status/导入/代次递增/诊断不泄露密码/Connect拒绝；预配服务SID后`guard install`事务提交，回读6持久+6boot逐字段精确（M2严格flags比对与真实Windows一致）；**安装后对1.1.1.1:443的出站TCP实际被阻断**；重复安装为无操作；`rescue remove`（应急阻断→撤许可→删M2→删应急）后无残留且直连恢复。
+CI查出并修复：管理员未降权令牌下console数据目录默认所有者为Administrators导致自建目录被拒（现显式`O:<用户>`）。
+仍未覆盖：v3门/包层许可的真实安装与数据通路（需固定核心+真实节点）、boot冷启动、服务/BFE崩溃、旁路抓包、物理网卡/TUN恢复。
+
 ## 实际构建与验证
 2026-11-22（UTC）云端Linux容器：Linux workspace构建、Windows GNU debug/release四个exe构建、core测试目标Windows交叉编译均退出0；**core 38个测试在Linux实际运行全部通过**（含新增8个v3测试；此前30个首次真正执行）。新增代码clippy无告警（遗留告警未改）。未执行任何exe、服务、WFP或网络变更；未在Windows运行。
 

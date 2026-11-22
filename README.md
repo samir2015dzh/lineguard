@@ -4,7 +4,7 @@
 
 > **M3未完成、未经Windows运行验证、未签名，请勿日常使用。当前不能提供可用VPN或防泄露保护，Connect仍Unsupported。**
 > 0.3.0-preview.3 / IPC5：在preview.2独占TUN隔离/网络journal/独立救援之上，新增v3窄许可（ALE身份门∩包层例外）计划、原生事务/逐字段回读/单事务撤销代码，rescue先撤许可；管理员可在已隔离TUN上以`tun open --confirm OPEN-NARROW-DATA-PATH`请求窄放行（仅隔离VM实验，**未验收，Connect仍Unsupported**）。
-> Linux与WindowsGNU release构建成功；core 38个纯逻辑测试已在Linux实际运行通过；所有Windows系统/视觉/性能验收未执行。继续开发入口及完整缺口：**[HANDOFF.md](HANDOFF.md)**。
+> CI（Linux+Windows）：构建、core 38个测试实际运行；Windows一次性VM冒烟已实测M2全阻断安装/回读/**出站确实被阻断**/独立救援撤销及console IPC。v3放行、冷启动、崩溃、旁路、视觉/性能验收未执行。继续开发入口及完整缺口：**[HANDOFF.md](HANDOFF.md)**。
 
 Rust 原生 Windows 10/11 x64 桌面软件。中文深色界面、克制动效、按需绘制，不内嵌浏览器。
 
