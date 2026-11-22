@@ -8,7 +8,12 @@ fn main() -> eframe::Result {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1024.0, 720.0])
             .with_min_inner_size([840.0, 580.0])
-            .with_title("LineGuard · 开发预览"),
+            .with_title("LineGuard · 开发预览")
+            .with_icon(std::sync::Arc::new(eframe::egui::IconData {
+                rgba: include_bytes!("../../../assets/lineguard-64.rgba").to_vec(),
+                width: 64,
+                height: 64,
+            })),
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
