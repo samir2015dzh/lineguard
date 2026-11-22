@@ -1,5 +1,7 @@
 # LineGuard · 未完成的Windows Rust开发版
 
+原始整体思路全文：[docs/整体思路.md](docs/整体思路.md)；原文中的测试通过/性能数字是原始设想附带描述，不代表本项目已验证，实际状态见 [HANDOFF.md](HANDOFF.md)。
+
 > **M3未完成、未经Windows运行验证、未签名，请勿日常使用。当前不能提供可用VPN或防泄露保护，Connect仍Unsupported。**
 > 0.3.0-preview.2 / IPC4：已编译真实独占TUN隔离管理、写前网络journal和独立救援代码；仍保留全IP阻断，没有ALE/包层例外，不能联网。默认打开不修改网络；仅管理员明确危险意图可请求实验变更。
 > Linux与WindowsGNU release构建、两目标纯core测试编译均成功；30个测试断言均未执行，所有Windows系统/视觉/性能验收未执行。继续开发入口及完整缺口：**[HANDOFF.md](HANDOFF.md)**。
