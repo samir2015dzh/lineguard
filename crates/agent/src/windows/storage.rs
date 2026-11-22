@@ -402,9 +402,11 @@ impl Store {
         directory: PathBuf,
     ) -> io::Result<Self> {
         let sddl = if endpoint.console {
+            // Explicit owner: an unfiltered admin token would otherwise default the owner to
+            // BUILTIN\Administrators, and ensure_owner (deliberately strict) would then refuse.
             format!(
-                "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{})",
-                identity.user
+                "O:{}D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{})",
+                identity.user, identity.user
             )
         } else {
             "O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)".into()
