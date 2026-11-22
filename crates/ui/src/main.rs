@@ -2,6 +2,8 @@
 #[cfg(windows)]
 mod app;
 #[cfg(windows)]
+mod backend;
+#[cfg(windows)]
 fn main() -> eframe::Result {
     let console = std::env::args().any(|arg| arg == "--console");
     let options = eframe::NativeOptions {
