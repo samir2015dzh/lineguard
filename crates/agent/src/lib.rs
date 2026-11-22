@@ -84,6 +84,16 @@ pub fn mutate_guard(_: bool, _: &str, _: bool) -> io::Result<lineguard_core::gua
     Err(unsupported())
 }
 
+/// Live v3 narrow-permit readback; journal values are only the comparison target.
+#[cfg(windows)]
+pub fn inspect_permits() -> io::Result<lineguard_core::permit::Evidence> {
+    windows::permit::inspect()
+}
+#[cfg(not(windows))]
+pub fn inspect_permits() -> io::Result<lineguard_core::permit::Evidence> {
+    Err(unsupported())
+}
+
 #[cfg(windows)]
 pub fn inspect_guard_details() -> io::Result<String> {
     windows::wfp::detailed_inspect()

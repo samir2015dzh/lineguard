@@ -624,6 +624,8 @@ impl Lifecycle {
         // If either the barrier or poststate cannot be proved, do not destroy evidence or user edits.
         let result = (|| {
             wfp::ensure_closed()?;
+            // Permits are revoked before the core stops (never a window with core gone, permit kept).
+            super::permit::revoke_all()?;
             super::network::precheck_restore(&active.lease)?;
             active.child.stop()?;
             super::network::restore(&active.store, &mut active.lease)

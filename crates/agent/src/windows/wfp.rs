@@ -25,32 +25,32 @@ use windows_sys::{
     core::GUID,
 };
 
-const SERVICE: &str = "LineGuardPreview";
+pub(super) const SERVICE: &str = "LineGuardPreview";
 const _: () = assert!(FWPM_FILTER_FLAG_PERSISTENT == 1 && FWPM_FILTER_FLAG_BOOTTIME == 2);
-fn check(code: u32) -> io::Result<()> {
+pub(super) fn check(code: u32) -> io::Result<()> {
     if code == 0 {
         Ok(())
     } else {
         Err(io::Error::other(format!("WFP错误0x{code:08x}")))
     }
 }
-fn conflict() -> io::Error {
+pub(super) fn conflict() -> io::Error {
     io::Error::other("产品GUID/版本或依赖冲突；未扩大修改范围，请独立inspect")
 }
-fn now() -> u64 {
+pub(super) fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
         .min(u64::MAX as u128) as u64
 }
-fn key(g: &GUID) -> u128 {
+pub(super) fn key(g: &GUID) -> u128 {
     ((g.data1 as u128) << 96)
         | ((g.data2 as u128) << 80)
         | ((g.data3 as u128) << 64)
         | u64::from_be_bytes(g.data4) as u128
 }
-fn gid(value: u128) -> GUID {
+pub(super) fn gid(value: u128) -> GUID {
     GUID::from_u128(value)
 }
 fn layer(layer: Layer) -> GUID {
@@ -74,7 +74,7 @@ fn blob() -> FWP_BYTE_BLOB {
         data: guard::MARKER.as_ptr().cast_mut(),
     }
 }
-fn wide_matches(text: *const u16, expected: &str) -> bool {
+pub(super) fn wide_matches(text: *const u16, expected: &str) -> bool {
     if text.is_null() {
         return false;
     }
@@ -85,7 +85,7 @@ fn wide_matches(text: *const u16, expected: &str) -> bool {
             .enumerate()
             .all(|(i, ch)| unsafe { *text.add(i) == *ch })
 }
-struct Memory<T>(*mut T);
+pub(super) struct Memory<T>(pub(super) *mut T);
 impl<T> Drop for Memory<T> {
     fn drop(&mut self) {
         if !self.0.is_null() {
@@ -95,9 +95,9 @@ impl<T> Drop for Memory<T> {
         }
     }
 }
-struct Engine(HANDLE);
+pub(super) struct Engine(pub(super) HANDLE);
 impl Engine {
-    fn open() -> io::Result<Self> {
+    pub(super) fn open() -> io::Result<Self> {
         let mut raw = ptr::null_mut();
         let session = FWPM_SESSION0 {
             txnWaitTimeoutInMSec: 1000,
@@ -114,7 +114,7 @@ impl Engine {
         })?;
         Ok(Self(raw))
     }
-    fn transaction(&self, read_only: bool) -> io::Result<Transaction<'_>> {
+    pub(super) fn transaction(&self, read_only: bool) -> io::Result<Transaction<'_>> {
         check(unsafe {
             FwpmTransactionBegin0(self.0, if read_only { FWPM_TXN_READ_ONLY } else { 0 })
         })?;
@@ -131,17 +131,17 @@ impl Drop for Engine {
         }
     }
 }
-struct Transaction<'a> {
+pub(super) struct Transaction<'a> {
     engine: &'a Engine,
     active: bool,
 }
 impl Transaction<'_> {
-    fn commit(&mut self) -> io::Result<()> {
+    pub(super) fn commit(&mut self) -> io::Result<()> {
         check(unsafe { FwpmTransactionCommit0(self.engine.0) })?;
         self.active = false;
         Ok(())
     }
-    fn abort(&mut self) -> bool {
+    pub(super) fn abort(&mut self) -> bool {
         let code = unsafe { FwpmTransactionAbort0(self.engine.0) };
         self.active = false;
         code == 0
@@ -156,9 +156,9 @@ impl Drop for Transaction<'_> {
         }
     }
 }
-struct Enumeration<'a> {
-    engine: &'a Engine,
-    handle: HANDLE,
+pub(super) struct Enumeration<'a> {
+    pub(super) engine: &'a Engine,
+    pub(super) handle: HANDLE,
 }
 impl Drop for Enumeration<'_> {
     fn drop(&mut self) {
@@ -181,7 +181,7 @@ struct FilterSnapshot {
     owned: bool,
     exact: bool,
 }
-fn weight(value: &FWP_VALUE0) -> Option<u64> {
+pub(super) fn weight(value: &FWP_VALUE0) -> Option<u64> {
     if value.r#type == FWP_UINT64 && !unsafe { value.Anonymous.uint64 }.is_null() {
         Some(unsafe { *value.Anonymous.uint64 })
     } else {
@@ -368,6 +368,11 @@ fn observe(engine: &Engine) -> io::Result<Observation> {
             if count != 0 {
                 for entry in unsafe { std::slice::from_raw_parts(entries.0, count as usize) } {
                     let observed = FilterSnapshot::from_native(unsafe { &**entry });
+                    // v3 objects share the M2 parents by design and are assessed by `permit`;
+                    // they are neither M2 rules nor unknown extras.
+                    if lineguard_core::permit::is_permit_key(key(unsafe { &(**entry).filterKey })) {
+                        continue;
+                    }
                     if let Some(previous) = state.filters.iter().find(|f| f.key == observed.key) {
                         if previous.id != observed.id || previous.exact != observed.exact {
                             return Err(conflict());
@@ -386,6 +391,10 @@ fn observe(engine: &Engine) -> io::Result<Observation> {
         }
     }
     Ok(state)
+}
+/// M2 evidence inside the caller's transaction (no nested session that could wait on it).
+pub(super) fn m2_evidence(engine: &Engine) -> io::Result<Evidence> {
+    Ok(observe(engine)?.evidence())
 }
 pub(super) fn inspect_m2() -> io::Result<Evidence> {
     let engine = Engine::open()?;
@@ -528,6 +537,11 @@ pub fn mutate(installing: bool, confirmation: &str, experimental_vm: bool) -> io
     if !before.can_mutate() {
         return Err(conflict());
     }
+    if super::permit::any_present(&engine)? {
+        return Err(io::Error::other(
+            "存在v3许可对象；先由rescue recover撤销许可，M2基线不与许可混改",
+        ));
+    }
     let evidence = before.evidence();
     if (installing && evidence.state == guard::State::Configured)
         || (!installing && evidence.state == guard::State::Absent)
@@ -603,7 +617,7 @@ fn em_marker(blob: &FWP_BYTE_BLOB) -> bool {
         && unsafe { std::slice::from_raw_parts(blob.data, blob.size as usize) } == EM_MARKER
 }
 #[derive(Serialize)]
-struct Emergency {
+pub(super) struct Emergency {
     provider: bool,
     sublayer: bool,
     ids: Vec<(usize, u64)>,
@@ -612,11 +626,11 @@ impl Emergency {
     fn complete(&self) -> bool {
         self.provider && self.sublayer && self.ids.len() == 6
     }
-    fn present(&self) -> bool {
+    pub(super) fn present(&self) -> bool {
         self.provider || self.sublayer || !self.ids.is_empty()
     }
 }
-fn emergency_observe(engine: &Engine) -> io::Result<Emergency> {
+pub(super) fn emergency_observe(engine: &Engine) -> io::Result<Emergency> {
     let mut out = Emergency {
         provider: false,
         sublayer: false,
@@ -792,10 +806,9 @@ pub fn inspect() -> io::Result<Evidence> {
     let em = emergency_observe(&engine)?;
     tx.commit()?;
     if em.present() {
-        Ok(emergency_evidence(&em))
-    } else {
-        Ok(base)
+        return Ok(emergency_evidence(&em));
     }
+    Ok(super::permit::compose(base, &super::permit::inspect()?))
 }
 pub fn remove_emergency(confirmation: &str) -> io::Result<()> {
     require_elevated_admin()?;

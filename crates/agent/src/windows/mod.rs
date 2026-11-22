@@ -1,6 +1,7 @@
 pub mod engine;
 pub mod ipc;
 pub mod network;
+pub mod permit;
 mod security;
 mod storage;
 pub mod wfp;

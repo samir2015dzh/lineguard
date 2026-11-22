@@ -1,6 +1,6 @@
 # M3 评审结论（当前可执行策略仍为 M2 v2）
 
-**本预览不启用隧道数据通路。** 本文区分“官方 API 能表达的候选”与“已经实现/验证的策略”。preview.2不加入任何PERMIT、不删除M2全局阻断；管理员可显式启动隔离TUN及其自有DNS/两条路由，但不能联网。Connect 明确 Unsupported，既无 Protected 也无 TunnelReady。
+**本预览不启用隧道数据通路。** preview.3已按下表写出v3计划与原生事务代码（`crates/core/src/permit.rs`、`crates/agent/src/windows/permit.rs`），但没有任何命令或生命周期调用安装/放行，Windows未运行验证。 本文区分“官方 API 能表达的候选”与“已经实现/验证的策略”。preview.2不加入任何PERMIT、不删除M2全局阻断；管理员可显式启动隔离TUN及其自有DNS/两条路由，但不能联网。Connect 明确 Unsupported，既无 Protected 也无 TunnelReady。
 
 ## 交叉层矛盾与候选（未落地为 native filters）
 
@@ -10,10 +10,10 @@ Microsoft 明确：没有跨层仲裁。ALE PERMIT 不能覆盖 IPPACKET BLOCK�
 
 | 运行层 | 默认 | 高于本产品默认 BLOCK 的同层软 PERMIT 条件 | 状态 |
 |---|---|---|---|
-| IN/OUT IPPACKET V4 | BLOCK（保留M2） | 本产品 TUN 的实际 LUID；或实际物理 LUID + 单一远端 IPv4 | 未实现，不下发 |
+| IN/OUT IPPACKET V4 | BLOCK（保留M2） | 本产品 TUN 的实际 LUID；或实际物理 LUID + 单一远端 IPv4 | preview.3已编码，未接入/未运行 |
 | IN/OUT IPPACKET V6、IPFORWARD V4/V6 | BLOCK | 无 | M2已编译，运行未验证 |
-| ALE_AUTH_CONNECT / ALE_AUTH_RECV_ACCEPT V4 | BLOCK | TUN LUID；或完整核心 App ID + 专用服务SID + 物理 LUID + IPv4 + TCP/UDP分别 + 远端端口 | 未实现，不下发 |
-| ALE_AUTH_CONNECT / ALE_AUTH_RECV_ACCEPT V6 | BLOCK | 无 | 未实现，不下发 |
+| ALE_AUTH_CONNECT / ALE_AUTH_RECV_ACCEPT V4 | BLOCK | TUN LUID；或完整核心 App ID + 专用服务SID + 物理 LUID + IPv4 + TCP/UDP分别 + 远端端口 | preview.3已编码，未接入/未运行 |
+| ALE_AUTH_CONNECT / ALE_AUTH_RECV_ACCEPT V6 | BLOCK | 无 | preview.3已编码，未接入/未运行 |
 | boot-time 6层 | BLOCK | 无；启动阶段不尝试解析、DNS或联网 | M2已编译，boot切换未验证 |
 
 候选合计保留原12条（6持久+6boot），另加4个ALE默认BLOCK、2个ALE TUN许可、4个ALE核心许可、4个包层许可，即14条新增持久规则。这个计数是候选规划，不是已安装结果。接口条件不能用请求里的字符串替代真实 LUID；IP/port在WFP条件中用host byte order。不能把其他应用或任意SYSTEM进程视作核心。

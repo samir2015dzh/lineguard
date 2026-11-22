@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const POLICY_VERSION: u32 = 2;
-pub const RESCUE_MARKER: &str = "LineGuard.Rescue.GuardPolicy.v2.NetworkJournal.v1";
+pub const RESCUE_MARKER: &str = "LineGuard.Rescue.GuardPolicy.v2.NetworkJournal.v1.PermitRevoke.v3";
 pub const PROVIDER: u128 = 0xa9b29c632a1a49c9ae644e4700020001;
 pub const SUBLAYER: u128 = 0xa9b29c632a1a49c9ae644e4700020002;
 pub const MARKER: &[u8] = b"LineGuard.Guard.v2";
@@ -60,6 +60,8 @@ pub enum State {
     Drift,
     Configured,
     Emergency,
+    /// M2 baseline plus exact v3 narrow permits: no longer block-all, never "protected".
+    Narrowed,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -130,7 +132,7 @@ impl Evidence {
                 "12条策略存储/字段回读完整；boot仅为注册证据，阻断效果与冷启动未验收"
             }
             State::Drift => "规则缺失、字段/归属漂移或服务配置不符；阻断可能仍部分生效，请独立检查",
-            State::Unknown | State::Emergency => unreachable!(),
+            State::Unknown | State::Emergency | State::Narrowed => unreachable!(),
         }
         .into();
         Self {

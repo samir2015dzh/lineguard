@@ -23,6 +23,14 @@ fn run() -> io::Result<()> {
             ));
         }
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        if args.as_slice() == ["guard", "permit", "inspect"] {
+            let evidence = lineguard_agent::inspect_permits()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&evidence).map_err(io::Error::other)?
+            );
+            return Ok(());
+        }
         if args.as_slice() == ["guard", "inspect"] {
             println!("{}", lineguard_agent::inspect_guard_details()?);
             return Ok(());
@@ -40,7 +48,7 @@ fn run() -> io::Result<()> {
             }
             _ => {
                 return Err(io::Error::other(
-                    "危险操作用法：guard inspect | guard install --experimental-vm-only --confirm BLOCK-ALL-IP | guard remove --confirm ALLOW-DIRECT",
+                    "危险操作用法：guard inspect | guard permit inspect（只读） | guard install --experimental-vm-only --confirm BLOCK-ALL-IP | guard remove --confirm ALLOW-DIRECT",
                 ));
             }
         };

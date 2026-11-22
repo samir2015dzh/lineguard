@@ -673,6 +673,9 @@ pub fn recover(confirmation: &str, allow_direct: bool) -> io::Result<String> {
     // Exclusive writer lock is shared with the daemon and ordinary guard removal.
     // Confirm the independent barrier before stopping the daemon or reading an untrusted journal.
     wfp::ensure_closed()?;
+    // With the unconditional independent barrier in place, removing v3 permits cannot open
+    // anything; do it before touching the core or routes so no permit outlives this recovery.
+    super::permit::revoke_all()?;
     let store = match Store::network_journal(true) {
         Ok(store) => store,
         Err(e) if matches!(e.raw_os_error(), Some(32 | 33)) => {

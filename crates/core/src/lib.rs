@@ -2,6 +2,7 @@
 pub mod engine;
 pub mod guard;
 pub mod network;
+pub mod permit;
 use serde::{Deserialize, Serialize};
 use std::{fmt, net::IpAddr};
 use thiserror::Error;
@@ -11,7 +12,7 @@ pub fn wipe(bytes: &mut [u8]) {
     bytes.zeroize();
 }
 
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 pub const CONFIG_VERSION: u32 = 1;
 pub const MAX_FRAME: usize = 128 * 1024;
 pub const MAX_IMPORT: usize = 64 * 1024;
@@ -316,7 +317,7 @@ impl Controller {
             phase: match self.guard.state {
                 guard::State::Unknown => Phase::Unknown,
                 guard::State::Absent => Phase::Unprotected,
-                guard::State::Drift => Phase::Degraded,
+                guard::State::Drift | guard::State::Narrowed => Phase::Degraded,
                 guard::State::Configured | guard::State::Emergency => Phase::Blocked,
             },
             profiles: self.config.summaries(),
